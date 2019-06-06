@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdio.h>
+
+#define min(a, b) ((a > b) ? b : a)
 
 // Particle mass
 #define m (1.0)
@@ -46,8 +49,49 @@ float analytical_ground(float x) {
     return C * exp(power);
 }
 
+float normed_rand() {
+    return ((float) rand())/((float) RAND_MAX);
+}
+
+
+//Problem 1: Monte-Carlo chain a point particle in a LOW_TEMP heat bath and HO potential 
+#define p1_steps 10000000
+#define p1_radius 2.0
+#define dt 1.0
+
+float next_energy(float cur_x, float next_x, float time_between) {
+    float x_est = (next_x + cur_x)/2.0;
+    float pe = 0.5 * m * w * w * x_est * x_est;
+
+    float v_est = (next_x - cur_x)/time_between; 
+    float ke = 0.5 * m * v_est * v_est;
+    return ke + pe; 
+}
+
+float p1() {
+    float cur_x = 0.0;
+    float cur_E = 0.0;
+    float t_here = 0.0;
+    for(size_t idx = 0; idx < p1_steps; idx++) {
+        t_here += 1.0;
+        float next_x = p1_radius * (normed_rand() -0.5) + cur_x;
+        float next_E = next_energy(cur_x, next_x, t_here);
+
+        float metropolis_factor = min(1.0, probability(next_E, LOW_TEMP)/probability(cur_E, LOW_TEMP));
+        float flag = normed_rand();
+        if(flag < metropolis_factor) {
+            cur_x = next_x;
+            cur_E = next_E;
+            t_here = 0.0;
+        }
+    }
+    return cur_E;
+}
+
+
 
 int main() {
+    fprintf(stdout, "Ground state energy: %f\n", p1());
     return 0;
 }
 
