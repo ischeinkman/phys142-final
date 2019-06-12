@@ -18,7 +18,7 @@ while (i<len(xvals)):
     pylab.title("Markov Chain Path Sampling")
     pylab.xlabel("T")
     pylab.ylabel("x(T)")
-    pylab.savefig("out/out" + ('%03d' % j)+ '.jpg')
+    pylab.savefig("out/" + ('%03d' % j)+ '.png')
     pylab.close()
     j+= 1
     i+= num
