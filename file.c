@@ -36,6 +36,8 @@
 
 #define SEARCHRANGE (0.7)
 
+#define GRAPHSTEP 10000
+
 // the discretized x values as a function of tau
 float x_tau[N];
 
@@ -145,22 +147,28 @@ float allmin(float *data, size_t len) {
     return retval;
 }
 
+void print_state(int j, float * path, FILE * file) {
+    for(size_t idx = 0; idx < N; idx ++) {
+        float tau = ((float) idx) * dt; 
+        float x = path[idx];
+        fprintf(file, "%d,%f,%f\n",j, tau, x);
+    }
+}
+
 int main() {
 
     float eTotal = 0;
     // number of different simulations
     float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
+    FILE * ground_state_probability = fopen("ground_state_probability.csv", "w");
 
     for (int j = 0; j < NUM_RUNS; j++) {
         monte_carlo_iteration(TEMP);
         eTotal = avg_energy(x_tau);
         e_chain[j] = eTotal;
-        if (j % 1000 == 0) {
-            printf("%d : %f   =>   %f  |   %f   |   %f   ;;;   %f\n", j,
-                   analytic_energy(0), eTotal, avg(e_chain, j),
-                   allmin(e_chain, j), ((float)accept) / (accept + fail));
+        if(j % GRAPHSTEP == 0) {
+            print_state(j, x_tau, ground_state_probability);
         }
-        eTotal = 0.0;
     }
-    printf("%f\n", (eTotal / 2000) / N);
+    printf("Ground state energy: %f\n", avg(e_chain, NUM_RUNS));
 }
