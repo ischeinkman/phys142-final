@@ -20,7 +20,7 @@ while (i<len(xvals)):
     pylab.axis([0,500,-4,4])
     pylab.ylabel("x(T)")
     pylab.rcParams['figure.figsize'] = 10, 5
-    pylab.savefig("out/" + ('%03d' % j)+ '.png')
+    pylab.savefig("out/" + ('%03d' % j)+ '.png', dpi=800)
     pylab.close()
     j+= 1
     i+= num

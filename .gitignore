@@ -1,3 +1,6 @@
 .vscode/
 out/
 .mypy_cache/
+*.csv 
+*.mp4
+*.png

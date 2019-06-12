@@ -8,4 +8,5 @@ e_data = data[1]
 plt.scatter(t_data, e_data)
 plt.xlabel('Temperature')
 plt.ylabel('Average Energy')
+#plt.ylim((0, 1))
 plt.savefig('t_vs_e.png', dpi=500)

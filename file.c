@@ -166,21 +166,22 @@ void print_state(int j, float * path, FILE * file) {
 float simulate_temperature(float temperature, int runs) {
     float eTotal = 0;
     // number of different simulations
-    float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
+    float *e_chain = (float *)calloc(runs, sizeof(float));
+    memset(x_tau, 0, N * sizeof(float));
 
     for (int j = 0; j < runs; j++) {
         monte_carlo_iteration(temperature);
         eTotal = avg_energy(x_tau, time_for_temp(temperature));
         e_chain[j] = eTotal;
     }
-    return avg(e_chain, NUM_RUNS);
+    return avg(e_chain, runs);
 }
 
 #define TESTEP 0.001
 #define TESTART (1.0/500.0)
-#define TESTOP 0.1
+#define TESTOP 1.0
 #define TESIZE (( TESTOP - TESTART + 1.0)/ TESTEP)
-#define TERUNS 1000000
+#define TERUNS 10000
 
 void energy_plot() {
     FILE * output = fopen("energy_for_temp.csv", "w");
@@ -196,6 +197,10 @@ int main() {
     float eTotal = 0;
     // number of different simulations
     float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
+
+    float * x0xtau = (float *) calloc(NUM_RUNS, sizeof(float));
+    float * x0xtaup1 = (float *) calloc(NUM_RUNS, sizeof(float));
+
     FILE * ground_state_probability = fopen("ground_state_probability.csv", "w");
 
     for (int j = 0; j < NUM_RUNS; j++) {
@@ -205,8 +210,15 @@ int main() {
         if(j % GRAPHSTEP == 0) {
             print_state(j/GRAPHSTEP, x_tau, ground_state_probability);
         }
+        x0xtaup1[j] = x_tau[0] * x_tau[300];
+        x0xtau[j] = x_tau[0] * x_tau[200];
     }
+    float top = avg(x0xtaup1, NUM_RUNS);
+    float bottom = avg(x0xtau, NUM_RUNS);
+    float diff = -1.0/(100 * dt) * log(top/bottom)/log(exp(1));
+    float E1 = analytic_energy(0) + diff;
     printf("Ground state energy: %f\n", avg(e_chain, NUM_RUNS));
+    printf("First excited state energy: %f\n", E1);
     fclose(ground_state_probability);
     energy_plot();
 }
