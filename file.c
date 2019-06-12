@@ -22,7 +22,7 @@
 // Boltzman Constant
 #define k (1.0)
 
-#define TEMP (HBAR/(k * TOTAL_TIME))
+#define TEMP (1.0/500.0)
 // number of discrete points of the polymer chain
 #define N (500)
 
@@ -30,9 +30,9 @@
 #define NUM_RUNS (10000 * N)
 
 // the size of the step
-#define dt (1.0)
+#define dt (TOTAL_TIME/N)
 
-#define TOTAL_TIME (dt * N)
+#define TOTAL_TIME (HBAR/(k * TEMP))
 
 #define SEARCHRANGE (0.7)
 
@@ -40,6 +40,14 @@
 
 // the discretized x values as a function of tau
 float x_tau[N];
+
+float temp_for_time(float time) {
+    return HBAR/(k * time);
+}
+
+float time_for_temp(float temp) {
+    return HBAR/(k * temp);
+}
 
 // returns a random double in range val - step to val + step
 float random_val(float val, float step) {
@@ -49,7 +57,7 @@ float random_val(float val, float step) {
     return val + offset;
 }
 
-float avg_energy(float * path) {
+float avg_energy(float * path, float total_time) {
     float total = 0.0;
     for(size_t idx = 0; idx < N; idx ++) {
         float x_cur = path[idx];
@@ -65,7 +73,7 @@ float avg_energy(float * path) {
         total += ke + pe;
     }
 
-    return total/TOTAL_TIME;
+    return total/total_time;
 
 }
 
@@ -101,8 +109,8 @@ float markov_step(float xtau, float temperature, int i) {
     float xtau_prime = random_val(xtau, SEARCHRANGE);
     assert(!isnan(xtau_prime));
     proposed[i] = xtau_prime;
-    float energy_prime = avg_energy(proposed);
-    float energy_curr = avg_energy(x_tau);
+    float energy_prime = avg_energy(proposed, time_for_temp(temperature));
+    float energy_curr = avg_energy(x_tau, time_for_temp(temperature));
 
     float prob_accept = exp( (energy_curr - energy_prime) / (k * temperature));
     if (uniform_distribution(1, 10000) <= prob_accept * 10000) {
@@ -155,6 +163,34 @@ void print_state(int j, float * path, FILE * file) {
     }
 }
 
+float simulate_temperature(float temperature, int runs) {
+    float eTotal = 0;
+    // number of different simulations
+    float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
+
+    for (int j = 0; j < runs; j++) {
+        monte_carlo_iteration(temperature);
+        eTotal = avg_energy(x_tau, time_for_temp(temperature));
+        e_chain[j] = eTotal;
+    }
+    return avg(e_chain, NUM_RUNS);
+}
+
+#define TESTEP 0.001
+#define TESTART (1.0/500.0)
+#define TESTOP 0.1
+#define TESIZE (( TESTOP - TESTART + 1.0)/ TESTEP)
+#define TERUNS 1000000
+
+void energy_plot() {
+    FILE * output = fopen("energy_for_temp.csv", "w");
+    for(float temp = TESTART; temp < TESTOP; temp += TESTEP) {
+        float cur_e = simulate_temperature(temp, TERUNS);
+        fprintf(output, "%f,%f\n", temp, cur_e);
+    }
+    fclose(output);
+}
+
 int main() {
 
     float eTotal = 0;
@@ -164,11 +200,13 @@ int main() {
 
     for (int j = 0; j < NUM_RUNS; j++) {
         monte_carlo_iteration(TEMP);
-        eTotal = avg_energy(x_tau);
+        eTotal = avg_energy(x_tau, time_for_temp(TEMP));
         e_chain[j] = eTotal;
         if(j % GRAPHSTEP == 0) {
             print_state(j/GRAPHSTEP, x_tau, ground_state_probability);
         }
     }
     printf("Ground state energy: %f\n", avg(e_chain, NUM_RUNS));
+    fclose(ground_state_probability);
+    energy_plot();
 }
