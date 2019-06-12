@@ -167,7 +167,7 @@ int main() {
         eTotal = avg_energy(x_tau);
         e_chain[j] = eTotal;
         if(j % GRAPHSTEP == 0) {
-            print_state(j, x_tau, ground_state_probability);
+            print_state(j/GRAPHSTEP, x_tau, ground_state_probability);
         }
     }
     printf("Ground state energy: %f\n", avg(e_chain, NUM_RUNS));
