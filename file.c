@@ -1,10 +1,12 @@
-#include <float.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <math.h>
-#include <stdio.h>
-#include <time.h>
 #include "hermite_polynomial.h"
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <memory.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define min(a, b) ((a > b) ? b : a)
 
@@ -20,100 +22,145 @@
 // Boltzman Constant
 #define k (1.0)
 
-// The temperature to use for the
-// ground state energy calcs
-#define LOW_TEMP (FLT_EPSILON)
-
-//number of discrete points of the polymer chain
+#define TEMP (HBAR/(k * TOTAL_TIME))
+// number of discrete points of the polymer chain
 #define N (500)
 
-//number of runs of the monte carlo path simulation
-#define NUM_RUNS (1000)
+// number of runs of the monte carlo path simulation
+#define NUM_RUNS (10000 * N)
 
-//the size of the step
-#define delta (2)
+// the size of the step
+#define dt (1.0)
 
-//the discretized tau values of the polymer chain
-float tau_vals[N];
+#define TOTAL_TIME (dt * N)
 
-//the discretized x values as a function of tau
+#define SEARCHRANGE (0.7)
+
+// the discretized x values as a function of tau
 float x_tau[N];
 
-//returns a random double in range val - step to val + ste[
-float random_val (float val, float step) {
-    return (step + step) * ( (float) rand() / (float) RAND_MAX) + val - step;
+// returns a random double in range val - step to val + step
+float random_val(float val, float step) {
+    float normed_rand = ((float)rand()) / ((float)RAND_MAX);
+    float scaled_rand = normed_rand * step * 2.0;
+    float offset = scaled_rand - step;
+    return val + offset;
 }
 
-// Energy for a given state
-// Taken from Wikipedia
-float chain_energy(float xtau, int i) {
-    int index_plus = (i+1)%N;
-    int index_minus = (i-1)%N;
-    float xi_plus = x_tau[index_plus] - xtau;
-    float xi_minus = x_tau[index_minus] - xtau;
-    return delta * (0.5*m*( (xi_plus*xi_plus) + (xi_minus*xi_minus) ) / (delta * delta) +
-        0.5 * m * w * w * xtau * xtau);
+float avg_energy(float * path) {
+    float total = 0.0;
+    for(size_t idx = 0; idx < N; idx ++) {
+        float x_cur = path[idx];
+        float pe = 0.5 * m * w * w * x_cur * x_cur;
+
+        float x_plus = path[(idx + 1) % N];
+        float dx_plus = x_plus - x_cur;
+        float x_minus = path[(idx - 1 + N) % N];
+        float dx_minus = x_cur - x_minus;
+        float dx_avg = 0.5 * (dx_plus + dx_minus);
+        float v_est = dx_avg/dt;
+        float ke = 0.5 * m * v_est * v_est;
+        total += ke + pe;
+    }
+
+    return total/TOTAL_TIME;
+
+}
+
+float analytic_energy(size_t n) {
+    return ((float)(2 * n + 1)) * HBAR * w * 0.5;
 }
 
 int uniform_distribution(int rangeLow, int rangeHigh) {
-    int range = rangeHigh - rangeLow + 1; //+1 makes it [rangeLow, rangeHigh], inclusive.
-    int copies=RAND_MAX/range; // we can fit n-copies of [0...range-1] into RAND_MAX
+    int range = rangeHigh - rangeLow +
+                1; //+1 makes it [rangeLow, rangeHigh], inclusive.
+    int copies =
+        RAND_MAX / range; // we can fit n-copies of [0...range-1] into RAND_MAX
     // Use rejection sampling to avoid distribution errors
-    int limit=range*copies;
-    int myRand=-1;
-    while( myRand<0 || myRand>=limit){
-        myRand=rand();
+    int limit = range * copies;
+    int myRand = -1;
+    while (myRand < 0 || myRand >= limit) {
+        myRand = rand();
     }
-    return myRand/copies+rangeLow;    // note that this involves the high-bits
+    return myRand / copies + rangeLow; // note that this involves the high-bits
 }
 
-//initializes tau_array to correct discrete values for given temp
-void initialize_values (float temperature) {
-    float step = temperature/N;
-    for(int i = 0; i <= N; i++) {
-        tau_vals[i] = i*step;
-    }
+float tau(uint32_t idx, float temperature) {
+    float step = temperature / N;
+    return idx * step;
 }
 
-//runs markov iteration for specific tau coordinate in the chain
+size_t accept = 0;
+size_t fail = 0;
+// runs markov iteration for specific tau coordinate in the chain
 float markov_step(float xtau, float temperature, int i) {
-    float xtau_prime = random_val(xtau, delta);
-    float energy_prime = chain_energy(xtau_prime, i);
-    float energy_curr = chain_energy(xtau, i);
+    float proposed[N];
+    memcpy(proposed, x_tau, N * sizeof(float));
+    float xtau_prime = random_val(xtau, SEARCHRANGE);
+    assert(!isnan(xtau_prime));
+    proposed[i] = xtau_prime;
+    float energy_prime = avg_energy(proposed);
+    float energy_curr = avg_energy(x_tau);
 
-    if(energy_curr < energy_prime) {
+    float prob_accept = exp( (energy_curr - energy_prime) / (k * temperature));
+    if (uniform_distribution(1, 10000) <= prob_accept * 10000) {
+        accept += 1;
         return xtau_prime;
+    } else {
+        fail += 1;
+        return xtau;
     }
-
-    else if (energy_curr > energy_prime) {
-        float prob_accept = exp(-energy_curr/temperature)/exp(-energy_prime/temperature);
-	if (uniform_distribution(1,10000) <= prob_accept*10000)
-            return xtau_prime;
-    }
-    return xtau;
 }
 
-//runs one monte carlo step on the whole polymer chain
+// runs one monte carlo step on the whole polymer chain
 void monte_carlo_iteration(float temperature) {
-    //choose random index in the chain to move
-    int i = (int)((rand() * 1.0) / RAND_MAX * N);
+    // choose random index in the chain to move
+    int i = uniform_distribution(0, N - 1);
 
-    x_tau[i] = markov_step(tau_vals[i], temperature, i);
+    x_tau[i] = markov_step(x_tau[i], temperature, i);
+    assert(!isnan(x_tau[i]));
 }
 
-int main(){
-    float T = 1000;
-    initialize_values(T);
+float avg(float *data, size_t len) {
+    if (len <= 0) {
+        return 0.0;
+    }
+    float total = 0.0;
+    for (size_t idx = 0; idx < len; idx++) {
+        total += data[idx];
+    }
+    return total / ((float)len);
+}
+
+float allmin(float *data, size_t len) {
+    if (len <= 0) {
+        return 0.0;
+    }
+    float retval = 100000.0;
+    for (size_t idx = 0; idx < len; idx++) {
+        if (retval > data[idx]) {
+            retval = data[idx];
+        }
+    }
+    return retval;
+}
+
+int main() {
 
     float eTotal = 0;
-    //number of different simulations
-        for(int j = 0; j <2000*N; j++) {
-            for(int h = 0; h < N; h++) {
-		 float diff = x_tau[(h+1)%N] - x_tau[h];
-		 eTotal += T * delta * (0.5*m*(diff * diff) / (delta*delta) +
-	             0.5 * m * w * w  * x_tau[h]*x_tau[h]);
-            }
-            monte_carlo_iteration(T);
-	}
-    printf("%f\n", eTotal/2000/N);
+    // number of different simulations
+    float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
+
+    for (int j = 0; j < NUM_RUNS; j++) {
+        monte_carlo_iteration(TEMP);
+        eTotal = avg_energy(x_tau);
+        e_chain[j] = eTotal;
+        if (j % 1000 == 0) {
+            printf("%d : %f   =>   %f  |   %f   |   %f   ;;;   %f\n", j,
+                   analytic_energy(0), eTotal, avg(e_chain, j),
+                   allmin(e_chain, j), ((float)accept) / (accept + fail));
+        }
+        eTotal = 0.0;
+    }
+    printf("%f\n", (eTotal / 2000) / N);
 }
