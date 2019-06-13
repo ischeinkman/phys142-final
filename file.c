@@ -52,9 +52,9 @@ float random_val(float val, float step) {
 }
 
 
-float avg_energy(float *path, size_t pathlen, float total_time) {
+float avg_energy(float *path, size_t pathlen, float dt) {
     float total = 0.0;
-    float dt = total_time / pathlen;
+    const float total_time = ((float) pathlen) * dt;
     for (size_t idx = 0; idx < pathlen; idx++) {
         float x_cur = path[idx];
         float pe = 0.5 * m * w * w * x_cur * x_cur;
@@ -66,10 +66,12 @@ float avg_energy(float *path, size_t pathlen, float total_time) {
         float dx_avg = 0.5 * (dx_plus + dx_minus);
         float v_est = dx_avg / dt;
         float ke = 0.5 * m * v_est * v_est;
-        total += ke + pe;
+        total += (ke + pe) * dt;
     }
-
-    return total / total_time;
+    //float a = total/total_time;
+    //float b = dt * total/total_time;
+    //printf("%f %f %f\n", total, total/total_time, total/total_time * dt );
+    return total/total_time;
 }
 
 float analytic_energy(size_t n) {
@@ -95,16 +97,18 @@ size_t fail = 0;
 
 // runs one monte carlo step on the whole polymer chain
 void monte_carlo_iteration(float *path, size_t pathlen, float temperature) {
+
+    float dt = time_for_temp(temperature)/((float) pathlen);
     // choose random index in the chain to move
     int i = uniform_distribution(0, pathlen - 1);
     float xtau = path[i];
     assert(!isnan(xtau));
     float xtau_prime = random_val(xtau, SEARCHRANGE);
     assert(!isnan(xtau_prime));
-    float cur_energy = avg_energy(path, pathlen, time_for_temp(temperature));
+    float cur_energy = avg_energy(path, pathlen, dt);
     path[i] = xtau_prime;
-    float prime_energy = avg_energy(path, pathlen, time_for_temp(temperature));
-    float prob_accept = exp((cur_energy - prime_energy) / (k * temperature));
+    float prime_energy = avg_energy(path, pathlen, dt);
+    float prob_accept = exp((cur_energy - prime_energy) / (dt * k * temperature));
     int scale_factor = 10000;
     if (uniform_distribution(1, scale_factor) <=
         ((int)scale_factor * prob_accept)) {
@@ -140,10 +144,10 @@ float simulate_temperature(float *path, size_t pathlen, float temperature,
                            int runs) {
     float eTotal = 0;
     float *e_chain = (float *)calloc(runs, sizeof(float));
-
+    float dt = time_for_temp(temperature) /((float) pathlen);
     for (int j = 0; j < runs; j++) {
         monte_carlo_iteration(path, pathlen, temperature);
-        eTotal = avg_energy(path, pathlen, time_for_temp(temperature));
+        eTotal = avg_energy(path, pathlen, dt);
         e_chain[j] = eTotal;
     }
     float retval = avg(e_chain, runs);
@@ -159,20 +163,23 @@ float simulate_temperature(float *path, size_t pathlen, float temperature,
 
 void energy_plot() {
     FILE *output = fopen("energy_for_temp.csv", "w");
+    float *path = (float *)calloc(N, sizeof(float));
     for (float temp = TESTART; temp < TESTOP; temp += TESTEP) {
-        float *path = (float *)calloc(N, sizeof(float));
+        memset(path, 0, N * sizeof(float));
         float cur_e = simulate_temperature(path, N, temp, TERUNS);
         fprintf(output, "%f,%f\n", temp, cur_e);
-        free(path);
     }
+    free(path);
     fclose(output);
 }
 
 int main() {
 
-    const float ground_state_temp = 1.0/500.0;
+    const float ground_state_temp = 1.0;
     const float ground_state_time = time_for_temp(ground_state_temp);
     const float ground_state_dt = ground_state_time/((float) N);
+
+    printf("%f %f %f\n", ground_state_temp, ground_state_time, ground_state_dt);
 
     float *e_chain = (float *)calloc(NUM_RUNS, sizeof(float));
 
@@ -182,12 +189,14 @@ int main() {
     float *path = (float *) calloc(N, sizeof(float));
 
     FILE *ground_state_probability = fopen("ground_state_probability.csv", "w");
+    FILE *ground_state_convergence = fopen("ground_state_convergence.csv", "w");
 
     for (int j = 0; j < NUM_RUNS; j++) {
         assert_none_nan(path, N);
         monte_carlo_iteration(path, N, ground_state_temp);
-        e_chain[j] = avg_energy(path, N, time_for_temp(ground_state_temp));
-        if (j % GRAPHSTEP == 0) {
+        e_chain[j] = avg_energy(path, N, ground_state_dt);
+        if (j % GRAPHSTEP == 0) { 
+            fprintf(ground_state_convergence, "%d,%f,%f\n", j/GRAPHSTEP, e_chain[j], avg(e_chain, j + 1));
             print_state(j / GRAPHSTEP, ground_state_dt, path, N, ground_state_probability);
         }
         x0xtaup1[j] = path[0] * path[255];
@@ -195,11 +204,11 @@ int main() {
     }
     float top = avg(x0xtaup1, NUM_RUNS);
     float bottom = avg(x0xtau, NUM_RUNS);
-    float dt = time_for_temp(ground_state_temp) / N;
-    float diff = -1.0 / (dt * 10.0) * log(top / bottom) / log(exp(1));
+    float diff = -1.0 / (ground_state_dt * 10.0) * log(top / bottom) / log(exp(1));
     float E1 = analytic_energy(0) + diff;
     printf("Ground state energy: %f\n", avg(e_chain, NUM_RUNS));
     printf("First excited state energy: %f\n", E1);
     fclose(ground_state_probability);
+    fclose(ground_state_convergence);
     energy_plot();
 }
